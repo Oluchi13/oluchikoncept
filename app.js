@@ -142,6 +142,67 @@ function renderPortfolio(items) {
   grid.innerHTML = filtered.map(workCard).join("");
 }
 
+function testimonialDate(value) {
+  return value ? new Date(value).toLocaleDateString("en-NG", { year: "numeric", month: "short" }) : "";
+}
+function renderPublicTestimonials(rows) {
+  const grid = $("#testimonialGrid");
+  if (!rows.length) {
+    grid.innerHTML = `<div class="testimonial-empty"><p>Our client stories will appear here as reviews are approved.</p></div>`;
+    return;
+  }
+  grid.innerHTML = rows.map(row => `
+    <article class="testimonial-card">
+      <div class="testimonial-stars" aria-label="${Number(row.rating)} out of 5 stars">${"★".repeat(Number(row.rating))}${"☆".repeat(5 - Number(row.rating))}</div>
+      <blockquote>“${escapeHtml(row.review)}”</blockquote>
+      <div class="testimonial-author"><div class="testimonial-avatar" aria-hidden="true">${escapeHtml(String(row.customer_name || "C").trim().charAt(0).toUpperCase())}</div><div><strong>${escapeHtml(row.customer_name)}</strong><small>${escapeHtml(row.service)}${row.created_at ? ` · ${escapeHtml(testimonialDate(row.created_at))}` : ""}</small></div></div>
+    </article>`).join("");
+}
+async function loadPublicTestimonials() {
+  try {
+    const { data, error } = await supabase.from("testimonials")
+      .select("customer_name,service,rating,review,created_at")
+      .eq("status", "published")
+      .order("created_at", { ascending: false })
+      .limit(6);
+    if (error) throw error;
+    renderPublicTestimonials(data || []);
+  } catch (error) {
+    console.warn("Testimonials could not be loaded.", showError(error));
+    $("#testimonialGrid").innerHTML = `<div class="testimonial-empty"><p>Client stories are temporarily unavailable. Please check back soon.</p></div>`;
+  }
+}
+const testimonialForm = $("#testimonialForm");
+testimonialForm?.addEventListener("submit", async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const values = formValues(form);
+  const feedback = $("#testimonialFeedback");
+  const button = $('button[type="submit"]', form);
+  if (form.elements.website?.value) {
+    setFeedback(feedback, "Thank you. Your review has been received.", "success");
+    form.reset();
+    return;
+  }
+  button.disabled = true;
+  setFeedback(feedback, "Submitting your review…");
+  try {
+    const { error } = await supabase.from("testimonials").insert({
+      customer_name: String(values.customer_name || "").trim().slice(0, 80),
+      service: String(values.service || "").trim().slice(0, 100),
+      rating: Number(values.rating),
+      review: String(values.review || "").trim().slice(0, 1000)
+    });
+    if (error) throw error;
+    form.reset();
+    setFeedback(feedback, "Thank you! Your review has been received and will appear after studio approval.", "success");
+  } catch (error) {
+    setFeedback(feedback, `We could not submit your review: ${showError(error)}`, "error");
+  } finally {
+    button.disabled = false;
+  }
+});
+
 // Full-size image viewer
 const lightbox = document.createElement("div");
 lightbox.className = "lightbox hidden";
@@ -418,6 +479,12 @@ async function loadAdminTab(tab) {
   setDashboardLoading();
   try {
     if (tab === "visitors") { await loadVisitorAnalytics(); return; }
+    if (tab === "reviews") {
+      const { data, error } = await supabase.from("testimonials").select("*").order("created_at", { ascending: false });
+      if (error) throw error;
+      renderTestimonialsAdmin(data || []);
+      return;
+    }
     if (tab === "bookings" || tab === "quotes" || tab === "messages") {
       const table = tab === "bookings" ? "booking_requests" : tab === "quotes" ? "quote_requests" : "contact_messages";
       const { data, error } = await supabase.from(table).select("*").order("created_at", { ascending: false });
@@ -442,6 +509,28 @@ async function loadAdminTab(tab) {
   }
 }
 $$(".dashboard-tabs button").forEach(button => button.addEventListener("click", () => loadAdminTab(button.dataset.tab)));
+
+function renderTestimonialsAdmin(rows) {
+  const cards = rows.length ? rows.map(row => `
+    <article class="dash-item testimonial-admin-item">
+      <div class="dash-item-head"><div><h4>${escapeHtml(row.customer_name)}</h4><p class="dash-meta">${escapeHtml(row.service)} · ${"★".repeat(Number(row.rating))}${"☆".repeat(5 - Number(row.rating))}</p></div><span class="dash-status">${escapeHtml(row.status)}</span></div>
+      <p class="dash-body">${escapeHtml(row.review)}</p>
+      <div class="dash-actions"><label class="review-status-label">Status
+        <select data-action="testimonial-status" data-id="${escapeHtml(row.id)}">
+          <option value="pending" ${row.status === "pending" ? "selected" : ""}>Pending</option>
+          <option value="published" ${row.status === "published" ? "selected" : ""}>Published</option>
+          <option value="hidden" ${row.status === "hidden" ? "selected" : ""}>Hidden</option>
+        </select></label>
+        <button class="danger" data-action="testimonial-delete" data-id="${escapeHtml(row.id)}">Delete</button>
+        <span class="dash-meta">${escapeHtml(dateLabel(row.created_at))}</span>
+      </div>
+    </article>`).join("") : emptyDash("No reviews have been submitted yet.");
+  const pending = rows.filter(row => row.status === "pending").length;
+  $("#dashboardContent").innerHTML = `
+    <div class="visitor-heading"><div><h3>Client reviews</h3><p class="dash-meta">${pending} awaiting approval · Only published reviews appear publicly</p></div><button type="button" class="dash-refresh" id="refreshTestimonials">Refresh ↻</button></div>
+    <div class="dash-list">${cards}</div>`;
+  $("#refreshTestimonials")?.addEventListener("click", () => loadAdminTab("reviews"));
+}
 
 function renderPortfolioAdmin(items) {
   const categoryOptions = PORTFOLIO_CATEGORIES.map(cat => `<option>${escapeHtml(cat)}</option>`).join("");
@@ -536,6 +625,13 @@ $("#dashboardContent").addEventListener("click", async event => {
       if (error) throw error;
       await loadAdminTab(currentAdminTab);
     }
+    if (action === "testimonial-delete") {
+      if (!confirm("Permanently delete this client review?")) return;
+      const { error } = await supabase.from("testimonials").delete().eq("id", button.dataset.id);
+      if (error) throw error;
+      await loadAdminTab("reviews");
+      await loadPublicTestimonials();
+    }
     if (action === "portfolio-delete") {
       if (!confirm("Delete this portfolio item and its stored file?")) return;
       const marker = "/object/public/portfolio/";
@@ -561,6 +657,11 @@ $("#dashboardContent").addEventListener("change", async event => {
     if (error) alert(showError(error));
     else await loadAdminTab(currentAdminTab);
   }
+  if (input.dataset.action === "testimonial-status" && currentOwner) {
+    const { error } = await supabase.from("testimonials").update({ status: input.value }).eq("id", input.dataset.id);
+    if (error) alert(showError(error));
+    else { await loadAdminTab("reviews"); await loadPublicTestimonials(); }
+  }
   if (input.dataset.action === "portfolio-publish" && currentOwner) {
     const { error } = await supabase.from("portfolio_items").update({ is_published: input.checked }).eq("id", input.dataset.id);
     if (error) alert(showError(error));
@@ -571,6 +672,7 @@ $("#dashboardContent").addEventListener("change", async event => {
 // Initial public content, then restore an existing session if one is present.
 loadPublicServices();
 loadPublicPortfolio();
+loadPublicTestimonials();
 
 async function recordPublicVisit() {
   try {
