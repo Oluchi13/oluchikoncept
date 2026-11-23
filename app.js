@@ -316,6 +316,90 @@ supabase.auth.onAuthStateChange((_event, session) => {
 // Owner dashboard rendering and actions. These functions are called only after admin_users verification.
 function setDashboardLoading() { $("#dashboardContent").innerHTML = `<div class="dash-empty">Loading private studio data…</div>`; }
 function emptyDash(message) { return `<div class="dash-empty">${escapeHtml(message)}</div>`; }
+
+function lagosDateKey(value = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit"
+  }).formatToParts(value);
+  const part = type => parts.find(item => item.type === type)?.value || "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+function lagosDateOffset(dayOffset) {
+  const [year, month, day] = lagosDateKey().split("-").map(Number);
+  return lagosDateKey(new Date(Date.UTC(year, month - 1, day + dayOffset, 12)));
+}
+function renderVisitorAnalytics(rows) {
+  const today = lagosDateKey();
+  const days = Array.from({ length: 30 }, (_, index) => lagosDateOffset(index - 29));
+  const daily = new Map(days.map(day => [day, { visitors: new Set(), views: 0 }]));
+  const pageViews = new Map();
+  rows.forEach(row => {
+    const day = lagosDateKey(new Date(row.visited_at));
+    if (daily.has(day)) {
+      daily.get(day).visitors.add(row.visitor_id);
+      daily.get(day).views += 1;
+    }
+    const path = row.page_path || "/";
+    pageViews.set(path, (pageViews.get(path) || 0) + 1);
+  });
+  const todayData = daily.get(today) || { visitors: new Set(), views: 0 };
+  const last7 = days.slice(-7);
+  const last7Visitors = new Set();
+  last7.forEach(day => daily.get(day)?.visitors.forEach(id => last7Visitors.add(id)));
+  const last30Visitors = new Set();
+  days.forEach(day => daily.get(day)?.visitors.forEach(id => last30Visitors.add(id)));
+  const chartMax = Math.max(1, ...last7.map(day => daily.get(day)?.visitors.size || 0));
+  const chart = last7.map(day => {
+    const count = daily.get(day)?.visitors.size || 0;
+    const height = count ? Math.max(8, Math.round(count / chartMax * 100)) : 3;
+    const label = new Date(`${day}T12:00:00+01:00`).toLocaleDateString("en-NG", {
+      timeZone: "Africa/Lagos", weekday: "short"
+    });
+    return `<div class="visitor-chart-day"><span class="visitor-chart-count">${count}</span><span class="visitor-bar-wrap"><span class="visitor-bar" style="height:${height}%"></span></span><span class="visitor-chart-label">${label}</span></div>`;
+  }).join("");
+  const history = [...days].reverse().map(day => {
+    const data = daily.get(day);
+    const label = new Date(`${day}T12:00:00+01:00`).toLocaleDateString("en-NG", {
+      timeZone: "Africa/Lagos", weekday: "short", day: "numeric", month: "short"
+    });
+    return `<tr><td>${label}</td><td>${data?.visitors.size || 0}</td><td>${data?.views || 0}</td></tr>`;
+  }).join("");
+  const topPages = [...pageViews.entries()].sort((x, y) => y[1] - x[1]).slice(0, 5);
+  const pageList = topPages.length
+    ? topPages.map(([path, count]) => `<div class="visitor-page-row"><code>${escapeHtml(path)}</code><strong>${count}</strong></div>`).join("")
+    : '<p class="dash-meta">No page views recorded yet.</p>';
+  $("#dashboardContent").innerHTML = `
+    <div class="visitor-heading"><div><h3>Website visitors</h3><p class="dash-meta">Anonymous browser counts · West Africa Time (WAT)</p></div><button type="button" class="dash-refresh" id="refreshAnalytics">Refresh data ↻</button></div>
+    <div class="visitor-stat-grid">
+      <article class="visitor-stat"><span>Today's visitors</span><strong>${todayData.visitors.size}</strong></article>
+      <article class="visitor-stat"><span>Today's page views</span><strong>${todayData.views}</strong></article>
+      <article class="visitor-stat"><span>Unique visitors · 7 days</span><strong>${last7Visitors.size}</strong></article>
+      <article class="visitor-stat"><span>Unique visitors · 30 days</span><strong>${last30Visitors.size}</strong></article>
+    </div>
+    <section class="visitor-chart-panel"><div class="visitor-section-heading"><h4>Daily visitors</h4><span>Last 7 days</span></div><div class="visitor-chart">${chart}</div></section>
+    <section class="visitor-lower-grid">
+      <div class="visitor-history"><div class="visitor-section-heading"><h4>Daily report</h4><span>Last 30 days</span></div><div class="visitor-table-wrap"><table class="visitor-table"><thead><tr><th>Date</th><th>Visitors</th><th>Views</th></tr></thead><tbody>${history}</tbody></table></div></div>
+      <div class="visitor-pages"><div class="visitor-section-heading"><h4>Popular pages</h4><span>Last 30 days</span></div>${pageList}</div>
+    </section>
+    <p class="visitor-footnote">A visitor is counted by an anonymous browser ID. One browser can represent more than one person, and visitors who clear browser storage or use another device may be counted again. Tracking starts when this feature is published; earlier visits are not available.</p>`;
+  $("#refreshAnalytics")?.addEventListener("click", loadVisitorAnalytics);
+}
+async function loadVisitorAnalytics() {
+  if (!currentOwner) return;
+  setDashboardLoading();
+  const since = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000);
+  const { data, error } = await supabase.from("site_visits")
+    .select("visitor_id,visited_at,page_path")
+    .gte("visited_at", since.toISOString())
+    .order("visited_at", { ascending: false })
+    .limit(10000);
+  if (error) {
+    $("#dashboardContent").innerHTML = emptyDash(`Could not load visitor analytics: ${showError(error)}`);
+    return;
+  }
+  renderVisitorAnalytics(data || []);
+}
+
 function renderRequestList(rows, kind) {
   if (!rows.length) return emptyDash(kind === "bookings" ? "No booking requests yet." : kind === "quotes" ? "No quote requests yet." : "No contact messages yet.");
   return `<div class="dash-list">${rows.map(row => {
@@ -333,6 +417,7 @@ async function loadAdminTab(tab) {
   $$(".dashboard-tabs button").forEach(button => button.classList.toggle("active", button.dataset.tab === tab));
   setDashboardLoading();
   try {
+    if (tab === "visitors") { await loadVisitorAnalytics(); return; }
     if (tab === "bookings" || tab === "quotes" || tab === "messages") {
       const table = tab === "bookings" ? "booking_requests" : tab === "quotes" ? "quote_requests" : "contact_messages";
       const { data, error } = await supabase.from(table).select("*").order("created_at", { ascending: false });
@@ -486,6 +571,24 @@ $("#dashboardContent").addEventListener("change", async event => {
 // Initial public content, then restore an existing session if one is present.
 loadPublicServices();
 loadPublicPortfolio();
+
+async function recordPublicVisit() {
+  try {
+    const { data } = await supabase.auth.getSession();
+    if (data.session?.user) return; // Exclude signed-in owner sessions.
+    let visitorId = localStorage.getItem("oluchi_visitor_id");
+    if (!visitorId) {
+      visitorId = crypto.randomUUID();
+      localStorage.setItem("oluchi_visitor_id", visitorId);
+    }
+    const pagePath = `${location.pathname || "/"}`.slice(0, 500);
+    const { error } = await supabase.from("site_visits").insert({ visitor_id: visitorId, page_path: pagePath });
+    if (error) console.warn("Visitor analytics could not record this visit.", showError(error));
+  } catch (error) {
+    console.warn("Visitor analytics unavailable in this browser.", showError(error));
+  }
+}
 supabase.auth.getSession().then(({ data }) => {
   if (data.session?.user) verifyOwner(data.session.user);
-}).catch(() => showOwnerLogin());
+  else recordPublicVisit();
+}).catch(() => { showOwnerLogin(); recordPublicVisit(); });
