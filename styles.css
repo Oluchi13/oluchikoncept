@@ -440,3 +440,377 @@ body {
 @media (prefers-reduced-motion: no-preference) {
   html { scroll-behavior: smooth; }
 }
+/* OLUCHI KONCEPT - FINAL MOBILE DISPLAY REFINEMENT */
+
+html, body {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+}
+
+body {
+  overflow-x: hidden;
+}
+
+.site-header,
+main,
+footer {
+  width: 100%;
+  max-width: 100%;
+}
+
+@media (max-width: 620px) {
+  .section-wrap {
+    width: calc(100% - 32px);
+    max-width: 100%;
+  }
+
+  .site-header {
+    padding: 12px 16px;
+    gap: 12px;
+  }
+
+  .hero {
+    min-height: auto;
+    padding: 42px 0;
+    gap: 22px;
+  }
+
+  .hero-copy,
+  .hero-visual {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .hero h1 {
+    font-size: clamp(48px, 11.5vw, 64px);
+    line-height: 1.02;
+  }
+
+  .eyebrow {
+    font-size: 11.5px;
+    line-height: 1.5;
+  }
+
+  .hero-lede {
+    font-size: 17px;
+    line-height: 1.65;
+    margin: 18px 0 22px;
+  }
+
+  .hero-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .hero-actions .button {
+    min-width: 0;
+    min-height: 50px;
+    padding: 12px 9px;
+    font-size: 11px;
+    letter-spacing: .06em;
+  }
+
+  .hero-meta {
+    margin-top: 23px;
+    font-size: 11px;
+    letter-spacing: .09em;
+  }
+
+  .hero-visual {
+    padding: 5px 0 12px;
+    margin: 0;
+  }
+
+  .visual-panel {
+    width: 100%;
+  }
+
+  .section {
+    padding: 58px 0;
+  }
+
+  .section-kicker {
+    margin-bottom: 24px;
+    font-size: 11px;
+  }
+
+  .body-copy {
+    font-size: 16px;
+    line-height: 1.75;
+  }
+
+  .heading-aside,
+  .service-card p {
+    font-size: 15px;
+    line-height: 1.7;
+  }
+
+  .service-card ul {
+    font-size: 14px;
+    line-height: 1.8;
+  }
+}
+
+/* OLUCHI KONCEPT - TYPOGRAPHY AND SPACING IMPROVEMENT */
+
+.section-wrap {
+  width: min(1240px, calc(100% - 40px));
+}
+
+.section {
+  padding: 78px 0;
+}
+
+.hero {
+  min-height: auto;
+  gap: 42px;
+  padding-top: 55px;
+  padding-bottom: 65px;
+}
+
+.hero-lede {
+  font-size: 16px;
+  line-height: 1.8;
+}
+
+.eyebrow {
+  font-size: 11px;
+}
+
+.hero-meta {
+  margin-top: 38px;
+  font-size: 11px;
+}
+
+.main-nav a {
+  font-size: 12px;
+}
+
+.brand-copy strong {
+  font-size: 14px;
+}
+
+.brand-copy small {
+  font-size: 10px;
+}
+
+.header-cta {
+  font-size: 12px;
+}
+
+.button {
+  font-size: 12px;
+  padding: 14px 20px;
+}
+
+.section-kicker {
+  margin-bottom: 35px;
+  font-size: 11px;
+}
+
+.body-copy {
+  font-size: 15px;
+  line-height: 1.85;
+}
+
+.heading-aside {
+  font-size: 13px;
+}
+
+.service-card {
+  padding: 25px 22px 52px;
+}
+
+.service-card h3 {
+  font-size: 30px;
+}
+
+.service-card p {
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.service-card ul {
+  font-size: 12px;
+}
+
+.digital-capabilities b,
+.digital-capabilities span {
+  font-size: 12px;
+}
+
+.portfolio-caption small,
+.portfolio-caption p {
+  font-size: 11px;
+}
+
+.portfolio-caption h3 {
+  font-size: 25px;
+}
+
+.form-grid label,
+.owner-login label {
+  font-size: 10px;
+}
+
+.form-grid input,
+.form-grid select,
+.form-grid textarea,
+.owner-login input {
+  font-size: 14px;
+  padding: 13px;
+}
+
+.form-heading {
+  font-size: 10px;
+}
+
+.form-feedback {
+  font-size: 12px;
+}
+
+.contact-details strong {
+  font-size: 13px;
+}
+
+.contact-details small {
+  font-size: 10px;
+}
+
+.owner-intro p {
+  font-size: 13px;
+}
+
+/* MOBILE IMPROVEMENTS */
+@media (max-width: 620px) {
+  .section-wrap {
+    width: calc(100% - 32px);
+  }
+
+  .section {
+    padding: 55px 0;
+  }
+
+  .hero {
+    min-height: auto;
+    gap: 28px;
+    padding-top: 42px;
+    padding-bottom: 48px;
+  }
+
+  .hero h1 {
+    font-size: clamp(48px, 13vw, 68px);
+    line-height: .98;
+  }
+
+  .hero-lede {
+    font-size: 15px;
+    line-height: 1.75;
+    margin: 20px 0 24px;
+  }
+
+  .hero-meta {
+    margin-top: 28px;
+    font-size: 10px;
+  }
+
+  .eyebrow {
+    font-size: 10px;
+    letter-spacing: .16em;
+  }
+
+  .section-kicker {
+    margin-bottom: 27px;
+    font-size: 10px;
+  }
+
+  .about-copy h2,
+  .section-heading h2,
+  .digital-copy h2,
+  .inquiry-copy h2,
+  .contact-grid h2 {
+    font-size: clamp(38px, 10vw, 52px);
+    line-height: 1.05;
+  }
+
+  .body-copy {
+    font-size: 14px;
+    line-height: 1.8;
+  }
+
+  .service-card {
+    min-height: auto;
+    padding: 24px 20px 52px;
+  }
+
+  .service-card h3 {
+    font-size: 28px;
+  }
+
+  .service-card p {
+    font-size: 13px;
+  }
+
+  .service-card ul {
+    font-size: 12px;
+  }
+
+  .portfolio-caption p {
+    font-size: 12px;
+  }
+
+  .form-panel {
+    padding: 19px;
+  }
+
+  .form-grid {
+    gap: 14px;
+  }
+
+  .form-grid label,
+  .owner-login label {
+    font-size: 10px;
+  }
+
+  .form-grid input,
+  .form-grid select,
+  .form-grid textarea,
+  .owner-login input {
+    font-size: 14px;
+  }
+
+  .button {
+    font-size: 11px;
+  }
+
+  .contact-details strong {
+    font-size: 13px;
+  }
+
+  .owner-wrap {
+    gap: 25px;
+  }
+}
+
+
+/* OLUCHI KONCEPT - MOBILE HERO CIRCLE FIT */
+@media (max-width: 620px) {
+  .hero-visual .orbit-one {
+    width: min(calc(100vw - 72px), 320px);
+    height: min(calc(100vw - 72px), 320px);
+    right: 50%;
+    top: 50%;
+    transform: translate(50%, -50%);
+  }
+
+  .hero-visual .orbit-two {
+    width: min(calc(100vw - 48px), 380px);
+    height: min(calc(100vw - 48px), 380px);
+    right: 50%;
+    top: 50%;
+    transform: translate(50%, -50%);
+  }
+}
