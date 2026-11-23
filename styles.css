@@ -913,3 +913,10 @@ footer {
 .review-status-label select{min-width:120px}
 @media(max-width:760px){.testimonial-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.testimonial-form-wrap{grid-template-columns:1fr;gap:18px}}
 @media(max-width:520px){.testimonial-grid{grid-template-columns:1fr}.testimonial-card{min-height:0}.testimonial-card blockquote{margin-bottom:18px}}
+
+
+/* Dashboard notification counts */
+.dashboard-tabs button{display:inline-flex;align-items:center;gap:7px}
+.dashboard-tabs .tab-count{display:inline-grid;place-items:center;min-width:17px;height:17px;padding:0 5px;border-radius:20px;background:#b94c42;color:#fff;font-size:9px;font-weight:700;line-height:1}
+.dashboard-tabs .tab-count[hidden]{display:none}
+.dashboard-tabs button.active .tab-count{background:#17140e;color:var(--gold-light)}

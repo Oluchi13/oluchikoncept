@@ -17,6 +17,7 @@ const PORTFOLIO_CATEGORIES = ["Video Editing & Colour Grading", "Photography & V
 let activePortfolioFilter = "All";
 let currentOwner = null;
 let currentAdminTab = "bookings";
+let notificationTimer = null;
 let creatingAccount = false;
 let serviceRows = [];
 
@@ -303,13 +304,15 @@ function showOwnerLogin() {
   $("#ownerLoginPanel").classList.remove("hidden");
   $("#ownerArea").classList.add("hidden");
   currentOwner = null;
+  if (notificationTimer) clearInterval(notificationTimer);
+  notificationTimer = null;
 }
 function showOwnerMessage(message, kind = "") { setFeedback($("#authFeedback"), message, kind); }
 async function verifyOwner(user) {
   currentOwner = user;
   $("#ownerLoginPanel").classList.add("hidden");
   $("#ownerArea").classList.remove("hidden");
-  $("#ownerEmail").textContent = user.email || "Signed-in owner";
+  $("#ownerEmail").textContent = "MKPONGKE AKPAN (Amin)";
   $("#ownerNotAdmin").classList.add("hidden");
   $("#ownerDashboard").classList.add("hidden");
   try {
@@ -322,6 +325,9 @@ async function verifyOwner(user) {
       return;
     }
     $("#ownerDashboard").classList.remove("hidden");
+    await refreshDashboardCounts();
+    if (notificationTimer) clearInterval(notificationTimer);
+    notificationTimer = setInterval(refreshDashboardCounts, 30000);
     await loadAdminTab(currentAdminTab);
   } catch (error) {
     $("#ownerNotAdmin").classList.remove("hidden");
@@ -472,9 +478,41 @@ function renderRequestList(rows, kind) {
     return `<article class="dash-item"><div class="dash-item-head"><div><h4>${escapeHtml(row.customer_name || "Request")}</h4><p class="dash-meta"><a href="${mailLink(row.email)}">${escapeHtml(row.email)}</a>${row.phone ? ` · ${escapeHtml(row.phone)}` : ""}</p></div><span class="dash-status">${escapeHtml(row.status || "new")}</span></div><p class="dash-meta">${escapeHtml(label || "")} · ${escapeHtml(row.requested_date || dateLabel(row.created_at))}</p><p class="dash-body">${escapeHtml(detail)}</p><div class="dash-actions">${actionButtons}<button class="danger" data-action="delete-row" data-table="${kind === "bookings" ? "booking_requests" : kind === "quotes" ? "quote_requests" : "contact_messages"}" data-id="${escapeHtml(row.id)}">Delete</button><span class="dash-meta">${escapeHtml(dateLabel(row.created_at))}</span></div></article>`;
   }).join("")}</div>`;
 }
+async function refreshDashboardCounts() {
+  if (!currentOwner) return;
+  const checks = [
+    ["bookings", "booking_requests", "pending"],
+    ["quotes", "quote_requests", "new"],
+    ["messages", "contact_messages", "new"],
+    ["reviews", "testimonials", "pending"]
+  ];
+  const results = await Promise.all(checks.map(async ([tab, table, status]) => ({
+    tab,
+    result: await supabase.from(table).select("id", { count: "exact", head: true }).eq("status", status)
+  })));
+  results.forEach(({ tab, result }) => {
+    if (result.error) {
+      console.warn("Could not refresh " + tab + " notification count:", result.error);
+      return;
+    }
+    const button = $(`.dashboard-tabs button[data-tab="${tab}"]`);
+    if (!button) return;
+    let badge = button.querySelector(".tab-count");
+    if (!badge) {
+      badge = document.createElement("span");
+      badge.className = "tab-count";
+      button.appendChild(badge);
+    }
+    badge.textContent = String(result.count || 0);
+    badge.hidden = !result.count;
+    button.setAttribute("aria-label", button.textContent.trim() + (result.count ? `, ${result.count} new` : ""));
+  });
+}
+
 async function loadAdminTab(tab) {
   if (!currentOwner) return;
   currentAdminTab = tab;
+  await refreshDashboardCounts();
   $$(".dashboard-tabs button").forEach(button => button.classList.toggle("active", button.dataset.tab === tab));
   setDashboardLoading();
   try {
