@@ -814,3 +814,53 @@ footer {
     transform: translate(50%, -50%);
   }
 }
+
+/* OLUCHI KONCEPT - MOBILE TYPOGRAPHY IMPROVEMENT */
+@media (max-width: 620px) {
+  .hero-lede,
+  .body-copy,
+  .owner-intro p {
+    font-size: 16px;
+    line-height: 1.8;
+  }
+
+  .service-card p,
+  .portfolio-caption p {
+    font-size: 15px;
+    line-height: 1.75;
+  }
+
+  .service-card ul {
+    font-size: 14px;
+    line-height: 1.8;
+  }
+
+  .eyebrow,
+  .section-kicker,
+  .hero-meta {
+    font-size: 11.5px;
+  }
+
+  .portfolio-caption small {
+    font-size: 12px;
+  }
+
+  .form-grid label,
+  .owner-login label {
+    font-size: 12px;
+  }
+
+  .button,
+  .header-cta,
+  .text-link {
+    font-size: 13px;
+  }
+
+  .brand-copy small {
+    font-size: 10.5px;
+  }
+
+  .contact-details strong {
+    font-size: 14px;
+  }
+}
