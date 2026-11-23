@@ -18,6 +18,8 @@ let activePortfolioFilter = "All";
 let currentOwner = null;
 let currentAdminTab = "bookings";
 let notificationTimer = null;
+let dashboardRealtimeChannel = null;
+let realtimeRefreshTimer = null;
 let creatingAccount = false;
 let serviceRows = [];
 
@@ -299,11 +301,68 @@ $("#quoteForm").addEventListener("submit", e => { e.preventDefault(); submitPubl
 $("#bookingForm").addEventListener("submit", e => { e.preventDefault(); submitPublicForm(e.currentTarget, "booking_requests", "booking"); });
 $("#contactForm").addEventListener("submit", e => { e.preventDefault(); submitPublicForm(e.currentTarget, "contact_messages", "contact"); });
 
+// Live updates for owner dashboard notifications.
+function stopDashboardRealtime() {
+  if (realtimeRefreshTimer) clearTimeout(realtimeRefreshTimer);
+  realtimeRefreshTimer = null;
+
+  if (dashboardRealtimeChannel) {
+    supabase.removeChannel(dashboardRealtimeChannel);
+    dashboardRealtimeChannel = null;
+  }
+}
+
+function scheduleDashboardRefresh(tab) {
+  if (!currentOwner) return;
+
+  if (realtimeRefreshTimer) clearTimeout(realtimeRefreshTimer);
+
+  realtimeRefreshTimer = setTimeout(async () => {
+    realtimeRefreshTimer = null;
+    try {
+      if (currentAdminTab === tab) {
+        await loadAdminTab(tab);
+      } else {
+        await refreshDashboardCounts();
+      }
+    } catch (error) {
+      console.warn("Realtime dashboard refresh failed:", error);
+    }
+  }, 500);
+}
+
+function startDashboardRealtime() {
+  if (!currentOwner) return;
+
+  stopDashboardRealtime();
+
+  dashboardRealtimeChannel = supabase
+    .channel("oluchi-owner-dashboard-live")
+    .on("postgres_changes", {
+      event: "*", schema: "public", table: "booking_requests"
+    }, () => scheduleDashboardRefresh("bookings"))
+    .on("postgres_changes", {
+      event: "*", schema: "public", table: "quote_requests"
+    }, () => scheduleDashboardRefresh("quotes"))
+    .on("postgres_changes", {
+      event: "*", schema: "public", table: "contact_messages"
+    }, () => scheduleDashboardRefresh("messages"))
+    .on("postgres_changes", {
+      event: "*", schema: "public", table: "testimonials"
+    }, () => scheduleDashboardRefresh("reviews"))
+    .subscribe(status => {
+      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        console.warn("Dashboard Realtime connection status:", status);
+      }
+    });
+}
+
 // Private owner area. The auth UID must exist in admin_users before any admin table is read.
 function showOwnerLogin() {
   $("#ownerLoginPanel").classList.remove("hidden");
   $("#ownerArea").classList.add("hidden");
   currentOwner = null;
+  stopDashboardRealtime();
   if (notificationTimer) clearInterval(notificationTimer);
   notificationTimer = null;
 }
@@ -325,6 +384,7 @@ async function verifyOwner(user) {
       return;
     }
     $("#ownerDashboard").classList.remove("hidden");
+    startDashboardRealtime();
     await refreshDashboardCounts();
     if (notificationTimer) clearInterval(notificationTimer);
     notificationTimer = setInterval(refreshDashboardCounts, 30000);
