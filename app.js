@@ -630,6 +630,196 @@ function renderTestimonialsAdmin(rows) {
   $("#refreshTestimonials")?.addEventListener("click", () => loadAdminTab("reviews"));
 }
 
+const PORTFOLIO_MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+const PORTFOLIO_TARGET_UPLOAD_BYTES = Math.floor(PORTFOLIO_MAX_UPLOAD_BYTES * 0.9);
+
+function formatFileSize(bytes) {
+  return bytes >= 1024 * 1024
+    ? `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+    : `${(bytes / 1024).toFixed(0)} KB`;
+}
+
+async function trimVideoToFit(file) {
+  if (!("MediaRecorder" in window) || !("MediaStream" in window)) {
+    throw new Error("Automatic video trimming is not supported by this browser. Please try Chrome on Android or upload a smaller video.");
+  }
+
+  const video = document.createElement("video");
+  const objectUrl = URL.createObjectURL(file);
+  let sourceStream = null;
+  let outputStream = null;
+  let audioContext = null;
+
+  try {
+    video.preload = "auto";
+    video.playsInline = true;
+    video.muted = false;
+    video.volume = 1;
+    video.src = objectUrl;
+    video.style.position = "fixed";
+    video.style.left = "-10000px";
+    video.style.top = "0";
+    video.style.width = "2px";
+    video.style.height = "2px";
+    document.body.appendChild(video);
+
+    await new Promise((resolve, reject) => {
+      if (video.readyState >= 1 && Number.isFinite(video.duration)) return resolve();
+      video.addEventListener("loadedmetadata", resolve, { once: true });
+      video.addEventListener("error", () => reject(new Error("This video could not be opened for trimming. Try an MP4 or WebM video.")), { once: true });
+      video.load();
+    });
+
+    const duration = video.duration;
+    if (!Number.isFinite(duration) || duration < 1) {
+      throw new Error("The video duration could not be read, so it cannot be trimmed automatically.");
+    }
+
+    const capture = typeof video.captureStream === "function"
+      ? video.captureStream()
+      : typeof video.mozCaptureStream === "function" ? video.mozCaptureStream() : null;
+    if (!capture || !capture.getVideoTracks().length) {
+      throw new Error("This browser cannot process this video format. Please try Chrome on Android or upload a smaller video.");
+    }
+    sourceStream = capture;
+
+    const videoTracks = capture.getVideoTracks();
+    let audioTracks = [];
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (AudioContextClass) {
+      audioContext = new AudioContextClass();
+      const audioSource = audioContext.createMediaElementSource(video);
+      const audioDestination = audioContext.createMediaStreamDestination();
+      audioSource.connect(audioDestination);
+      audioTracks = audioDestination.stream.getAudioTracks();
+      await audioContext.resume();
+    } else {
+      audioTracks = capture.getAudioTracks();
+    }
+
+    outputStream = new MediaStream([...videoTracks, ...audioTracks]);
+
+    const mimeCandidates = [
+      "video/webm;codecs=vp9,opus",
+      "video/webm;codecs=vp8,opus",
+      "video/webm"
+    ];
+    const mimeType = mimeCandidates.find(type => MediaRecorder.isTypeSupported(type));
+    if (!mimeType) {
+      throw new Error("This browser cannot create a trimmed WebM video. Please try the latest Chrome browser.");
+    }
+
+    const audioBitrate = 128000;
+    const sourceBitrate = (file.size * 8) / duration;
+    const videoBitrate = Math.max(500000, Math.min(16000000, Math.round((sourceBitrate - audioBitrate) * 0.9)));
+    const recorderOptions = { mimeType, videoBitsPerSecond: videoBitrate, audioBitsPerSecond: audioBitrate };
+    let targetDuration = Math.min(
+      duration - 0.25,
+      (PORTFOLIO_TARGET_UPLOAD_BYTES * 8) / (videoBitrate + audioBitrate)
+    );
+    targetDuration = Math.max(1, targetDuration);
+
+    const recordSegment = seconds => new Promise((resolve, reject) => {
+      const chunks = [];
+      const recorder = new MediaRecorder(outputStream, recorderOptions);
+      let timeoutId = null;
+      let settled = false;
+
+      const finish = blob => {
+        if (settled) return;
+        settled = true;
+        if (timeoutId) clearTimeout(timeoutId);
+        video.removeEventListener("timeupdate", checkTime);
+        video.removeEventListener("ended", stopRecording);
+        resolve(blob);
+      };
+      const fail = error => {
+        if (settled) return;
+        settled = true;
+        if (timeoutId) clearTimeout(timeoutId);
+        video.removeEventListener("timeupdate", checkTime);
+        video.removeEventListener("ended", stopRecording);
+        reject(error);
+      };
+      const stopRecording = () => {
+        if (recorder.state !== "inactive") {
+          try { recorder.stop(); } catch (error) { fail(error); }
+        }
+      };
+      const checkTime = () => {
+        if (video.currentTime >= seconds) stopRecording();
+      };
+
+      recorder.ondataavailable = event => {
+        if (event.data?.size) chunks.push(event.data);
+      };
+      recorder.onerror = event => fail(event.error || new Error("Video trimming failed."));
+      recorder.onstop = () => finish(new Blob(chunks, { type: recorder.mimeType || mimeType }));
+
+      try {
+        recorder.start(250);
+        video.addEventListener("timeupdate", checkTime);
+        video.addEventListener("ended", stopRecording);
+        timeoutId = setTimeout(() => {
+          if (video.currentTime < seconds - 0.5) {
+            stopRecording();
+            fail(new Error("Video processing took too long. Please try a shorter video."));
+          } else {
+            stopRecording();
+          }
+        }, Math.ceil(seconds * 2500) + 15000);
+        video.play().catch(error => {
+          stopRecording();
+          fail(new Error(`The video could not be played for trimming: ${error.message || "playback was blocked"}`));
+        });
+      } catch (error) {
+        fail(error);
+      }
+    });
+
+    let trimmedBlob = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      video.pause();
+      if (video.currentTime > 0.05) {
+        await new Promise(resolve => {
+          video.addEventListener("seeked", resolve, { once: true });
+          video.currentTime = 0;
+          setTimeout(resolve, 1500);
+        });
+      } else {
+        video.currentTime = 0;
+      }
+
+      trimmedBlob = await recordSegment(targetDuration);
+      if (trimmedBlob.size > 0 && trimmedBlob.size <= PORTFOLIO_MAX_UPLOAD_BYTES) break;
+
+      if (attempt === 2 || !trimmedBlob.size) {
+        throw new Error("The trimmed copy is still above the 50 MB limit. Please choose a shorter video.");
+      }
+      targetDuration = Math.max(1, targetDuration * (PORTFOLIO_TARGET_UPLOAD_BYTES / trimmedBlob.size) * 0.9);
+    }
+
+    if (!trimmedBlob || trimmedBlob.size > PORTFOLIO_MAX_UPLOAD_BYTES) {
+      throw new Error("The trimmed copy could not be reduced below 50 MB. Please choose a shorter video.");
+    }
+
+    const baseName = file.name.replace(/\.[^.]+$/, "") || "video";
+    return new File([trimmedBlob], `${baseName}-trimmed.webm`, {
+      type: "video/webm",
+      lastModified: Date.now()
+    });
+  } finally {
+    video.pause();
+    outputStream?.getTracks().forEach(track => track.stop());
+    sourceStream?.getTracks().forEach(track => track.stop());
+    if (audioContext && audioContext.state !== "closed") {
+      try { await audioContext.close(); } catch {}
+    }
+    URL.revokeObjectURL(objectUrl);
+    video.remove();
+  }
+}
+
 function renderPortfolioAdmin(items) {
   const categoryOptions = PORTFOLIO_CATEGORIES.map(cat => `<option>${escapeHtml(cat)}</option>`).join("");
   const cards = items.length ? items.map(item => `
@@ -643,7 +833,7 @@ function renderPortfolioAdmin(items) {
       <label>Title<input name="title" required maxlength="150" /></label>
       <label>Category<select name="category">${categoryOptions}</select></label>
       <label class="full">Description<textarea name="description" rows="2" maxlength="1000"></textarea></label>
-      <label class="full">Image or video (max 50 MB)<input name="media" type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm" required /></label>
+      <label class="full">Image or video (max 50 MB). Oversized videos can be trimmed after confirmation.<input name="media" type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm" required /></label>
       <label><span>Publish immediately</span><input name="publish" type="checkbox" /></label>
       <button class="button button-gold" type="submit">Upload work ↗</button>
     </form><div class="dash-list">${cards}</div>`;
@@ -654,17 +844,47 @@ async function uploadPortfolio(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const values = formValues(form);
-  const file = form.elements.media.files[0];
+  const originalFile = form.elements.media.files[0];
   const button = $("button[type=submit]", form);
-  if (!file || !values.title.trim()) return;
+  if (!originalFile || !values.title.trim()) return;
   const allowed = ["image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/webm"];
-  if (!allowed.includes(file.type)) { alert("Choose a supported image or video file."); return; }
-  if (file.size > 50 * 1024 * 1024) { alert("The file is larger than 50 MB."); return; }
+  if (!allowed.includes(originalFile.type)) { alert("Choose a supported image or video file."); return; }
+
+  let file = originalFile;
+  if (file.size > PORTFOLIO_MAX_UPLOAD_BYTES) {
+    if (!file.type.startsWith("video/")) {
+      alert("Images must be 50 MB or smaller. Only videos can be trimmed automatically.");
+      return;
+    }
+    const approved = confirm(
+      `This video is ${formatFileSize(file.size)}, above the 50 MB upload limit.\n\nTrim it from the end and create an optimized WebM copy that fits the limit? The original file will not be changed.\n\nContinue?`
+    );
+    if (!approved) return;
+
+    button.disabled = true;
+    button.textContent = "Trimming video…";
+    try {
+      file = await trimVideoToFit(file);
+      if (file.size > PORTFOLIO_MAX_UPLOAD_BYTES) {
+        throw new Error("The trimmed video is still larger than 50 MB. Please choose a shorter video.");
+      }
+    } catch (error) {
+      alert(`Could not trim the video: ${showError(error)}`);
+      button.disabled = false;
+      button.textContent = "Upload work ↗";
+      return;
+    }
+  }
+
   button.disabled = true;
+  button.textContent = "Uploading…";
   try {
-    const extension = file.name.split(".").pop().toLowerCase().replace(/[^a-z0-9]/g, "") || "bin";
+    const extension = file.type.startsWith("video/webm")
+      ? "webm"
+      : file.name.split(".").pop().toLowerCase().replace(/[^a-z0-9]/g, "") || "bin";
     const safeName = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}.${extension}`;
-    const path = `${file.type.startsWith("video/") ? "videos" : "images"}/${safeName}`;
+    const storageFolder = file.type.startsWith("video/") ? "videos" : "images";
+    const path = `${storageFolder}/${safeName}`;
     const { error: uploadError } = await supabase.storage.from("portfolio").upload(path, file, { contentType: file.type, upsert: false });
     if (uploadError) throw uploadError;
     const publicUrl = supabase.storage.from("portfolio").getPublicUrl(path).data.publicUrl;
@@ -682,7 +902,10 @@ async function uploadPortfolio(event) {
     await loadPublicPortfolio();
   } catch (error) {
     alert(`Upload failed: ${showError(error)}`);
-  } finally { button.disabled = false; }
+  } finally {
+    button.disabled = false;
+    button.textContent = "Upload work ↗";
+  }
 }
 
 function renderServicesAdmin(rows) {
