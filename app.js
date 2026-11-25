@@ -157,7 +157,7 @@ function linkifyDescription(value) {
 
 function workCard(item) {
   const media = item.media_type === "video"
-    ? `<video src="${escapeHtml(item.media_url)}" controls muted playsinline preload="metadata" aria-label="${escapeHtml(item.title)}"></video>`
+    ? `<video src="${escapeHtml(item.media_url)}" controls playsinline preload="metadata" aria-label="${escapeHtml(item.title)}"></video>`
     : `<button type="button" class="zoom-trigger" data-full="${escapeHtml(item.media_url)}" data-title="${escapeHtml(item.title)}" aria-label="View ${escapeHtml(item.title)} full size"><img src="${escapeHtml(item.media_url)}" alt="${escapeHtml(item.title)}" loading="lazy" /></button>`;
   const cls = "portfolio-card" + (item.wide ? " is-wide" : "") + (item.tall ? " is-tall" : "");
   return `<article class="${cls}"><div class="portfolio-media">${media}</div><div class="portfolio-caption"><small>${escapeHtml(item.category)}</small><h3>${escapeHtml(item.title)}</h3><p>${linkifyDescription(item.description || "")}</p></div></article>`;
