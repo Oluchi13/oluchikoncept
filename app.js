@@ -126,12 +126,41 @@ const featuredWork = [
   { title: "Behind the Camera", category: "Photography & Videography", description: "Setting up a shoot on location.", media_url: "assets/founder-camera.jpg" }
 ];
 
+function linkifyDescription(value) {
+  const text = String(value || "");
+  const urlPattern = /(?:https?:\/\/|www\.)[^\s<>"']+/gi;
+  let result = "";
+  let lastIndex = 0;
+
+  for (const match of text.matchAll(urlPattern)) {
+    const raw = match[0];
+    const start = match.index;
+    result += escapeHtml(text.slice(lastIndex, start));
+
+    const trimmed = raw.replace(/[),.!?;:]+$/g, "");
+    const trailing = raw.slice(trimmed.length);
+
+    if (trimmed) {
+      const href = /^www\./i.test(trimmed) ? `https://${trimmed}` : trimmed;
+      result += `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(trimmed)}</a>`;
+    } else {
+      result += escapeHtml(raw);
+    }
+
+    result += escapeHtml(trailing);
+    lastIndex = start + raw.length;
+  }
+
+  result += escapeHtml(text.slice(lastIndex));
+  return result.replace(/\r?\n/g, "<br>");
+}
+
 function workCard(item) {
   const media = item.media_type === "video"
     ? `<video src="${escapeHtml(item.media_url)}" controls muted playsinline preload="metadata" aria-label="${escapeHtml(item.title)}"></video>`
     : `<button type="button" class="zoom-trigger" data-full="${escapeHtml(item.media_url)}" data-title="${escapeHtml(item.title)}" aria-label="View ${escapeHtml(item.title)} full size"><img src="${escapeHtml(item.media_url)}" alt="${escapeHtml(item.title)}" loading="lazy" /></button>`;
   const cls = "portfolio-card" + (item.wide ? " is-wide" : "") + (item.tall ? " is-tall" : "");
-  return `<article class="${cls}"><div class="portfolio-media">${media}</div><div class="portfolio-caption"><small>${escapeHtml(item.category)}</small><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.description || "")}</p></div></article>`;
+  return `<article class="${cls}"><div class="portfolio-media">${media}</div><div class="portfolio-caption"><small>${escapeHtml(item.category)}</small><h3>${escapeHtml(item.title)}</h3><p>${linkifyDescription(item.description || "")}</p></div></article>`;
 }
 
 function renderPortfolio(items) {
