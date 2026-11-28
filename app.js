@@ -850,23 +850,61 @@ async function trimVideoToFit(file) {
 }
 
 function renderPortfolioAdmin(items) {
-  const categoryOptions = PORTFOLIO_CATEGORIES.map(cat => `<option>${escapeHtml(cat)}</option>`).join("");
+  const categoryOptions = item => PORTFOLIO_CATEGORIES.map(cat =>
+    `<option value="${escapeHtml(cat)}" ${item.category === cat ? "selected" : ""}>${escapeHtml(cat)}</option>`
+  ).join("");
   const cards = items.length ? items.map(item => `
     <article class="dash-item">
-      <div class="dash-item-head"><h4>${escapeHtml(item.title)}</h4><span class="dash-status">${item.is_published ? "Published" : "Draft"}</span></div>
-      <p class="dash-meta">${escapeHtml(item.category)} · ${escapeHtml(item.media_type)}</p>
-      <div class="dash-actions"><label><input type="checkbox" data-action="portfolio-publish" data-id="${escapeHtml(item.id)}" ${item.is_published ? "checked" : ""}/> Published</label><button data-action="portfolio-delete" data-id="${escapeHtml(item.id)}" data-url="${escapeHtml(item.media_url)}" class="danger">Delete</button></div>
+      <div class="dash-item-head"><div><h4>${escapeHtml(item.title)}</h4><p class="dash-meta">${escapeHtml(item.category)} · ${escapeHtml(item.media_type)}</p></div><span class="dash-status">${item.is_published ? "Published" : "Draft"}</span></div>
+      <p class="dash-body">${escapeHtml(item.description || "")}</p>
+      <div class="dash-actions">
+        <button type="button" class="button button-outline" data-action="portfolio-edit" data-id="${escapeHtml(item.id)}">Edit</button>
+        <label><input type="checkbox" data-action="portfolio-publish" data-id="${escapeHtml(item.id)}" ${item.is_published ? "checked" : ""}/> Published</label>
+        <button type="button" data-action="portfolio-delete" data-id="${escapeHtml(item.id)}" data-url="${escapeHtml(item.media_url)}" class="danger">Delete</button>
+      </div>
+      <form class="dash-form portfolio-edit-form hidden" data-id="${escapeHtml(item.id)}">
+        <label>Title<input name="title" required maxlength="150" value="${escapeHtml(item.title)}" /></label>
+        <label>Category<select name="category" required>${categoryOptions(item)}</select></label>
+        <label class="full">Description<textarea name="description" rows="3" maxlength="1000">${escapeHtml(item.description || "")}</textarea></label>
+        <label class="full">Image / video URL<input name="media_url" type="url" required value="${escapeHtml(item.media_url)}" /></label>
+        <div class="dash-actions"><button class="button button-gold" type="submit">Save changes</button><button class="button button-outline" type="button" data-action="portfolio-edit" data-id="${escapeHtml(item.id)}">Cancel</button></div>
+      </form>
     </article>`).join("") : emptyDash("No portfolio items yet. Upload your first piece.");
   $("#dashboardContent").innerHTML = `
     <form class="dash-form" id="portfolioUploadForm">
       <label>Title<input name="title" required maxlength="150" /></label>
-      <label>Category<select name="category">${categoryOptions}</select></label>
+      <label>Category<select name="category">${PORTFOLIO_CATEGORIES.map(cat => `<option>${escapeHtml(cat)}</option>`).join("")}</select></label>
       <label class="full">Description<textarea name="description" rows="2" maxlength="1000"></textarea></label>
       <label class="full">Image or video (max 50 MB). Oversized videos can be trimmed after confirmation.<input name="media" type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm" required /></label>
       <label><span>Publish immediately</span><input name="publish" type="checkbox" /></label>
       <button class="button button-gold" type="submit">Upload work ↗</button>
     </form><div class="dash-list">${cards}</div>`;
   $("#portfolioUploadForm").addEventListener("submit", uploadPortfolio);
+  $$(".portfolio-edit-form").forEach(form => form.addEventListener("submit", async event => {
+    event.preventDefault();
+    if (!currentOwner) return;
+    const values = formValues(form);
+    const submit = $('button[type="submit"]', form);
+    submit.disabled = true;
+    submit.textContent = "Saving…";
+    try {
+      const payload = {
+        title: String(values.title || "").trim().slice(0, 150),
+        category: String(values.category || "").trim(),
+        description: String(values.description || "").trim().slice(0, 1000),
+        media_url: String(values.media_url || "").trim()
+      };
+      if (!payload.title || !payload.media_url) throw new Error("Please enter a title and a valid media URL.");
+      const { error } = await supabase.from("portfolio_items").update(payload).eq("id", form.dataset.id);
+      if (error) throw error;
+      await loadAdminTab("portfolio");
+      await loadPublicPortfolio();
+    } catch (error) {
+      alert(`Could not save portfolio changes: ${showError(error)}`);
+      submit.disabled = false;
+      submit.textContent = "Save changes";
+    }
+  }));
 }
 
 async function uploadPortfolio(event) {
@@ -964,6 +1002,11 @@ $("#dashboardContent").addEventListener("click", async event => {
   if (!button || !currentOwner) return;
   const action = button.dataset.action;
   try {
+    if (action === "portfolio-edit") {
+      const form = $(`.portfolio-edit-form[data-id="${button.dataset.id}"]`);
+      form?.classList.toggle("hidden");
+      return;
+    }
     if (action === "booking-status") {
       const { error } = await supabase.from("booking_requests").update({ status: button.dataset.status }).eq("id", button.dataset.id);
       if (error) throw error;
