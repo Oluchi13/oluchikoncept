@@ -16,7 +16,7 @@ const SERVICE_DETAILS = [
 const PORTFOLIO_CATEGORIES = ["Video Editing & Colour Grading", "Photography & Videography", "Graphic Design & Branding", "Flyers", "Promotional Mockups", "Animation & Multimedia", "UI/UX & Web"];
 let activePortfolioFilter = "All";
 let currentOwner = null;
-let currentAdminTab = "bookings";
+let currentAdminTab = "home";
 let notificationTimer = null;
 let dashboardRealtimeChannel = null;
 let realtimeRefreshTimer = null;
@@ -413,11 +413,12 @@ async function verifyOwner(user) {
       return;
     }
     $("#ownerDashboard").classList.remove("hidden");
+    showAdminHome();
     startDashboardRealtime();
     await refreshDashboardCounts();
     if (notificationTimer) clearInterval(notificationTimer);
     notificationTimer = setInterval(refreshDashboardCounts, 30000);
-    await loadAdminTab(currentAdminTab);
+    showAdminHome();
   } catch (error) {
     $("#ownerNotAdmin").classList.remove("hidden");
     $("#ownerNotAdmin h3").textContent = "Could not verify owner access.";
@@ -598,11 +599,30 @@ async function refreshDashboardCounts() {
   });
 }
 
+function showAdminHome() {
+  currentAdminTab = "home";
+  $("#dashboardHome")?.classList.remove("hidden");
+  $("#dashboardPage")?.classList.add("hidden");
+}
+$("#dashboardHome")?.addEventListener("click", event => {
+  const card = event.target.closest("[data-open-tab]");
+  if (!card || !currentOwner) return;
+  const tab = card.dataset.openTab;
+  const legacyTab = $(`.dashboard-tabs button[data-tab="${tab}"]`);
+  const titles = { portfolio: "Portfolio", services: "Services", bookings: "Bookings", quotes: "Quote requests", messages: "Messages", reviews: "Testimonials", visitors: "Website visitors" };
+  $("#dashboardHome").classList.add("hidden");
+  $("#dashboardPage").classList.remove("hidden");
+  $("#dashboardPageTitle").textContent = titles[tab] || "Management";
+  $("#dashboardPageSubtitle").textContent = "Manage this section of your studio website.";
+  loadAdminTab(tab);
+});
+$("#backToDashboard")?.addEventListener("click", showAdminHome);
 async function loadAdminTab(tab) {
   if (!currentOwner) return;
   currentAdminTab = tab;
+  $("#dashboardHome")?.classList.add("hidden");
+  $("#dashboardPage")?.classList.remove("hidden");
   await refreshDashboardCounts();
-  $$(".dashboard-tabs button").forEach(button => button.classList.toggle("active", button.dataset.tab === tab));
   setDashboardLoading();
   try {
     if (tab === "visitors") { await loadVisitorAnalytics(); return; }
@@ -635,7 +655,7 @@ async function loadAdminTab(tab) {
     $("#dashboardContent").innerHTML = emptyDash(`Could not load this section: ${showError(error)}`);
   }
 }
-$$(".dashboard-tabs button").forEach(button => button.addEventListener("click", () => loadAdminTab(button.dataset.tab)));
+
 
 function renderTestimonialsAdmin(rows) {
   const cards = rows.length ? rows.map(row => `
@@ -866,7 +886,7 @@ function renderPortfolioAdmin(items) {
         <label>Title<input name="title" required maxlength="150" value="${escapeHtml(item.title)}" /></label>
         <label>Category<select name="category" required>${categoryOptions(item)}</select></label>
         <label class="full">Description<textarea name="description" rows="3" maxlength="1000">${escapeHtml(item.description || "")}</textarea></label>
-        <label class="full">Image / video URL<input name="media_url" type="url" required value="${escapeHtml(item.media_url)}" /></label>
+        <div class="portfolio-media-edit full"><p class="dash-meta">Current media · ${escapeHtml(item.media_type || "image")}</p><a class="portfolio-current-media" href="${escapeHtml(item.media_url)}" target="_blank" rel="noopener noreferrer">Open current image/video ↗</a><label class="full">Replace image or video<input name="replace_media" type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm" /></label><small>Optional: choose a new file to replace the current media. Maximum 50 MB. Oversized videos can be trimmed after confirmation.</small><input name="media_url" type="hidden" required value="${escapeHtml(item.media_url)}" /></div>
         <div class="dash-actions"><button class="button button-gold" type="submit">Save changes</button><button class="button button-outline" type="button" data-action="portfolio-edit" data-id="${escapeHtml(item.id)}">Cancel</button></div>
       </form>
     </article>`).join("") : emptyDash("No portfolio items yet. Upload your first piece.");
@@ -885,6 +905,7 @@ function renderPortfolioAdmin(items) {
     if (!currentOwner) return;
     const values = formValues(form);
     const submit = $('button[type="submit"]', form);
+    let uploadedPath = null;
     submit.disabled = true;
     submit.textContent = "Saving…";
     try {
@@ -894,12 +915,45 @@ function renderPortfolioAdmin(items) {
         description: String(values.description || "").trim().slice(0, 1000),
         media_url: String(values.media_url || "").trim()
       };
-      if (!payload.title || !payload.media_url) throw new Error("Please enter a title and a valid media URL.");
+      if (!payload.title || !payload.media_url) throw new Error("Please enter a title.");
+      let file = form.elements.replace_media.files[0] || null;
+      const allowed = ["image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/webm"];
+      if (file && !allowed.includes(file.type)) throw new Error("Choose a supported image or video file.");
+      if (file && file.size > PORTFOLIO_MAX_UPLOAD_BYTES) {
+        if (!file.type.startsWith("video/")) throw new Error("Images must be 50 MB or smaller.");
+        if (!confirm(`This video is ${formatFileSize(file.size)}, above the 50 MB limit. Trim it from the end to fit? The original file will not be changed.`)) throw new Error("Media replacement cancelled.");
+        submit.textContent = "Trimming video…";
+        file = await trimVideoToFit(file);
+      }
+      if (file) {
+        submit.textContent = "Uploading media…";
+        const ext = file.type.startsWith("video/webm") ? "webm" : file.name.split(".").pop().toLowerCase().replace(/[^a-z0-9]/g, "") || "bin";
+        const folder = file.type.startsWith("video/") ? "videos" : "images";
+        uploadedPath = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2, 9)}.${ext}`;
+        const { error: uploadError } = await supabase.storage.from("portfolio").upload(uploadedPath, file, { contentType: file.type, upsert: false });
+        if (uploadError) throw uploadError;
+        payload.media_url = supabase.storage.from("portfolio").getPublicUrl(uploadedPath).data.publicUrl;
+        payload.media_type = file.type.startsWith("video/") ? "video" : "image";
+      }
+      submit.textContent = "Saving changes…";
       const { error } = await supabase.from("portfolio_items").update(payload).eq("id", form.dataset.id);
       if (error) throw error;
+      if (file) {
+        const oldUrl = String(values.media_url || "");
+        const marker = "/object/public/portfolio/";
+        const offset = oldUrl.indexOf(marker);
+        if (offset >= 0) {
+          const oldPath = decodeURIComponent(oldUrl.slice(offset + marker.length));
+          if (oldPath && oldPath !== uploadedPath) {
+            const { error: removeError } = await supabase.storage.from("portfolio").remove([oldPath]);
+            if (removeError) console.warn("Replacement saved, but old media cleanup failed:", showError(removeError));
+          }
+        }
+      }
       await loadAdminTab("portfolio");
       await loadPublicPortfolio();
     } catch (error) {
+      if (uploadedPath) await supabase.storage.from("portfolio").remove([uploadedPath]).catch(() => {});
       alert(`Could not save portfolio changes: ${showError(error)}`);
       submit.disabled = false;
       submit.textContent = "Save changes";
